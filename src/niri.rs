@@ -2372,8 +2372,14 @@ impl Niri {
         let foreign_toplevel_state =
             ForeignToplevelManagerState::new::<State, _>(&display_handle, client_is_unrestricted);
         let image_capture_source_state = ImageCaptureSourceState::new();
-        let output_capture_source_state = OutputCaptureSourceState::new::<State>(&display_handle);
-        let image_copy_capture_state = ImageCopyCaptureState::new::<State>(&display_handle);
+        let output_capture_source_state = OutputCaptureSourceState::new_with_filter::<State, _>(
+            &display_handle,
+            client_is_unrestricted,
+        );
+        let image_copy_capture_state = ImageCopyCaptureState::new_with_filter::<State, _>(
+            &display_handle,
+            client_is_unrestricted,
+        );
         let toplevel_image_capture_state = ToplevelImageCaptureManagerState::new::<State, _>(
             &display_handle,
             client_is_unrestricted,

@@ -96,10 +96,9 @@ impl State {
     /// Computes the current buffer size for a capture source.
     fn image_capture_source_size(&self, source: &ImageCaptureSource) -> Option<Size<i32, Buffer>> {
         let size = match source_target(&self.niri, source)? {
-            CaptureSourceTarget::Output(output) => {
-                let mode = output.current_mode()?;
-                output.current_transform().transform_size(mode.size)
-            }
+            // The buffer keeps the output's native (untransformed) orientation; the output
+            // transform is delivered with each frame instead.
+            CaptureSourceTarget::Output(output) => output.current_mode()?.size,
             CaptureSourceTarget::Toplevel(surface) => {
                 let (mapped, output) = self.niri.layout.find_window_and_output(&surface)?;
                 let scale = output
@@ -123,17 +122,20 @@ impl State {
     fn build_image_capture_constraints(&mut self, size: Size<i32, Buffer>) -> BufferConstraints {
         let dma = self.backend.primary_render_node().and_then(|node| {
             self.backend.with_primary_renderer(|renderer| {
-                let mut formats: HashMap<Fourcc, Vec<Modifier>> = HashMap::new();
+                let mut map: HashMap<Fourcc, Vec<Modifier>> = HashMap::new();
                 for format in renderer.egl_context().dmabuf_render_formats().iter() {
-                    formats
-                        .entry(format.code)
-                        .or_default()
-                        .push(format.modifier);
+                    map.entry(format.code).or_default().push(format.modifier);
                 }
-                DmabufConstraints {
-                    node,
-                    formats: formats.into_iter().collect(),
+
+                // Keep the list in a stable order: clients tend to pick the first suitable
+                // entry, and an order that changes between updates confuses them.
+                let mut formats: Vec<(Fourcc, Vec<Modifier>)> = map.into_iter().collect();
+                for (_, modifiers) in &mut formats {
+                    modifiers.sort_unstable_by_key(|m| u64::from(*m));
                 }
+                formats.sort_unstable_by_key(|(code, _)| *code as u32);
+
+                DmabufConstraints { node, formats }
             })
         });
 
@@ -241,6 +243,9 @@ impl State {
             true
         });
         self.niri.copy_capture_sessions = sessions;
+
+        // Drop Smithay's own references to dead sessions.
+        self.niri.image_copy_capture_state.cleanup();
     }
 }
 
@@ -298,11 +303,11 @@ impl Niri {
         let Some(mode) = output.current_mode() else {
             return;
         };
+        let size = mode.size;
         let transform = output.current_transform();
-        let size = transform.transform_size(mode.size);
         let scale = Scale::from(output.current_scale().fractional_scale());
 
-        ensure_damage_tracker(&mut entry.damage_tracker, size, scale);
+        ensure_damage_tracker(&mut entry.damage_tracker, size, scale, transform);
 
         let mut elements: Vec<CopyCaptureRenderElement<GlesRenderer>> = Vec::new();
         let ctx = RenderCtx {
@@ -319,6 +324,7 @@ impl Niri {
             renderer,
             &elements,
             size,
+            transform,
             presentation_time,
             &self.event_loop,
         );
@@ -346,7 +352,7 @@ impl Niri {
             .to_physical_precise_up(scale);
         let size = bbox.size;
 
-        ensure_damage_tracker(&mut entry.damage_tracker, size, scale);
+        ensure_damage_tracker(&mut entry.damage_tracker, size, scale, Transform::Normal);
 
         let mut elements: Vec<CopyCaptureRenderElement<GlesRenderer>> = Vec::new();
 
@@ -371,6 +377,7 @@ impl Niri {
             renderer,
             &elements,
             size,
+            Transform::Normal,
             presentation_time,
             &self.event_loop,
         );
@@ -381,6 +388,7 @@ fn ensure_damage_tracker(
     damage_tracker: &mut OutputDamageTracker,
     size: Size<i32, Physical>,
     scale: Scale<f64>,
+    transform: Transform,
 ) {
     let OutputModeSource::Static {
         size: last_size,
@@ -391,8 +399,8 @@ fn ensure_damage_tracker(
         unreachable!("damage tracker must have static mode");
     };
 
-    if size != last_size || scale != last_scale || last_transform != Transform::Normal {
-        *damage_tracker = OutputDamageTracker::new(size, scale, Transform::Normal);
+    if size != last_size || scale != last_scale || transform != last_transform {
+        *damage_tracker = OutputDamageTracker::new(size, scale, transform);
     }
 }
 
@@ -401,6 +409,7 @@ fn deliver_frame(
     renderer: &mut GlesRenderer,
     elements: &[CopyCaptureRenderElement<GlesRenderer>],
     size: Size<i32, Physical>,
+    transform: Transform,
     presentation_time: Duration,
     event_loop: &LoopHandle<'static, State>,
 ) {
@@ -417,12 +426,13 @@ fn deliver_frame(
         return;
     };
 
-    // The buffer has Transform::Normal contents, so the conversion is 1:1.
+    // Convert the damage from output physical coordinates back to buffer coordinates.
+    let physical_size = transform.transform_size(size);
     let buffer_damage: Vec<Rectangle<i32, Buffer>> = damage
         .iter()
         .map(|dmg| {
             dmg.to_logical(1)
-                .to_buffer(1, Transform::Normal, &size.to_logical(1))
+                .to_buffer(1, transform.invert(), &physical_size.to_logical(1))
         })
         .collect();
 
@@ -461,7 +471,14 @@ fn deliver_frame(
     };
 
     match res {
-        Ok(sync) => success_after_sync(frame, buffer_damage, presentation_time, sync, event_loop),
+        Ok(sync) => success_after_sync(
+            frame,
+            transform,
+            buffer_damage,
+            presentation_time,
+            sync,
+            event_loop,
+        ),
         Err(err) => {
             warn!("error rendering for image copy capture: {err:?}");
             // Recreate the damage tracker to report full damage next time.
@@ -474,13 +491,14 @@ fn deliver_frame(
 /// Signals a successful capture, delaying it until the GPU is done rendering if necessary.
 fn success_after_sync(
     frame: Frame,
+    transform: Transform,
     damage: Vec<Rectangle<i32, Buffer>>,
     presentation_time: Duration,
     sync: Option<SyncPoint>,
     event_loop: &LoopHandle<'static, State>,
 ) {
     match sync.and_then(|sync| sync.export()) {
-        None => frame.success(Transform::Normal, damage, presentation_time),
+        None => frame.success(transform, damage, presentation_time),
         Some(sync_fd) => {
             let source = Generic::new(sync_fd, Interest::READ, Mode::OneShot);
             let mut frame = Some(frame);
@@ -488,7 +506,7 @@ fn success_after_sync(
             event_loop
                 .insert_source(source, move |_, _, _| {
                     frame.take().unwrap().success(
-                        Transform::Normal,
+                        transform,
                         damage.take().unwrap(),
                         presentation_time,
                     );
