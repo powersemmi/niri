@@ -33,10 +33,8 @@ pub struct ToplevelImageCaptureGlobalData {
 
 pub trait ToplevelImageCaptureHandler: ImageCaptureSourceHandler {
     /// Looks up the toplevel surface for a foreign toplevel handle.
-    fn lookup_toplevel_surface(
-        &mut self,
-        handle: &ExtForeignToplevelHandleV1,
-    ) -> Option<WlSurface>;
+    fn lookup_toplevel_surface(&mut self, handle: &ExtForeignToplevelHandleV1)
+        -> Option<WlSurface>;
 }
 
 impl ToplevelImageCaptureManagerState {

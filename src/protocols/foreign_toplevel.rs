@@ -19,10 +19,10 @@ use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{
     Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
 };
-use smithay::wayland::{Dispatch2, GlobalDispatch2};
 use smithay::wayland::shell::xdg::{
     ToplevelState, ToplevelStateSet, XdgToplevelSurfaceRoleAttributes,
 };
+use smithay::wayland::{Dispatch2, GlobalDispatch2};
 
 use crate::niri::State;
 use crate::protocols::EmptyData;

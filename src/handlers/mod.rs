@@ -607,7 +607,6 @@ impl ImageCaptureSourceHandler for State {
     }
 }
 
-
 impl OutputCaptureSourceHandler for State {
     fn output_capture_source_state(&mut self) -> &mut OutputCaptureSourceState {
         &mut self.niri.output_capture_source_state
@@ -617,7 +616,6 @@ impl OutputCaptureSourceHandler for State {
         source.user_data().insert_if_missing(|| output.downgrade());
     }
 }
-
 
 impl ImageCopyCaptureHandler for State {
     fn image_copy_capture_state(&mut self) -> &mut ImageCopyCaptureState {
@@ -644,7 +642,6 @@ impl ImageCopyCaptureHandler for State {
         self.image_copy_capture_session_destroyed(&session);
     }
 }
-
 
 impl ToplevelImageCaptureHandler for State {
     fn lookup_toplevel_surface(
