@@ -158,10 +158,14 @@ impl Backend {
         }
     }
 
-    pub fn primary_render_node(&self) -> Option<DrmNode> {
+    /// DRM render node of the primary renderer, if it has one.
+    ///
+    /// This is the node clients should allocate dma-bufs on for the primary renderer to import
+    /// and render into them directly.
+    pub fn primary_render_node(&mut self) -> Option<DrmNode> {
         match self {
-            Backend::Tty(tty) => Some(tty.primary_render_node()),
-            Backend::Winit(_) => None,
+            Backend::Tty(tty) => tty.primary_render_node(),
+            Backend::Winit(winit) => winit.primary_render_node(),
             Backend::Headless(_) => None,
         }
     }

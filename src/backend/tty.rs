@@ -2244,8 +2244,12 @@ impl Tty {
         self.ipc_outputs.clone()
     }
 
-    pub fn primary_render_node(&self) -> DrmNode {
-        self.primary_render_node
+    pub fn primary_render_node(&mut self) -> Option<DrmNode> {
+        // Only meaningful while the primary renderer exists.
+        self.gpu_manager
+            .single_renderer(&self.primary_render_node)
+            .ok()
+            .map(|_| self.primary_render_node)
     }
 
     #[cfg(feature = "xdp-gnome-screencast")]
