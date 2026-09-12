@@ -23,6 +23,7 @@ use smithay::reexports::rustix::fs::{fcntl_setfl, OFlags};
 use smithay::reexports::wayland_protocols::ext::foreign_toplevel_list::v1::server::ext_foreign_toplevel_handle_v1::ExtForeignToplevelHandleV1;
 use smithay::reexports::wayland_protocols_wlr::screencopy::v1::server::zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1;
 use smithay::reexports::wayland_server::protocol::wl_output::WlOutput;
+use smithay::reexports::wayland_server::protocol::wl_pointer::WlPointer;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::Resource;
 use smithay::utils::{Logical, Point, Rectangle, Serial};
@@ -39,8 +40,8 @@ use smithay::wayland::image_capture_source::{
     OutputCaptureSourceState,
 };
 use smithay::wayland::image_copy_capture::{
-    BufferConstraints, Frame, FrameRef, ImageCopyCaptureHandler, ImageCopyCaptureState, Session,
-    SessionRef,
+    BufferConstraints, CursorSession, CursorSessionRef, Frame, FrameRef, ImageCopyCaptureHandler,
+    ImageCopyCaptureState, Session, SessionRef,
 };
 use smithay::wayland::input_method::{InputMethodHandler, PopupSurface};
 use smithay::wayland::keyboard_shortcuts_inhibit::{
@@ -626,12 +627,28 @@ impl ImageCopyCaptureHandler for State {
         self.image_capture_constraints(source)
     }
 
+    fn cursor_capture_constraints(
+        &mut self,
+        source: &ImageCaptureSource,
+        _pointer: &WlPointer,
+    ) -> Option<BufferConstraints> {
+        self.image_capture_cursor_constraints(source)
+    }
+
     fn new_session(&mut self, session: Session) {
         self.new_image_copy_capture_session(session);
     }
 
+    fn new_cursor_session(&mut self, session: CursorSession) {
+        self.new_image_copy_capture_cursor_session(session);
+    }
+
     fn frame(&mut self, session: &SessionRef, frame: Frame) {
         self.image_copy_capture_frame_requested(session, frame);
+    }
+
+    fn cursor_frame(&mut self, session: &CursorSessionRef, frame: Frame) {
+        self.image_copy_capture_cursor_frame_requested(session, frame);
     }
 
     fn frame_aborted(&mut self, frame: FrameRef) {
@@ -640,6 +657,10 @@ impl ImageCopyCaptureHandler for State {
 
     fn session_destroyed(&mut self, session: SessionRef) {
         self.image_copy_capture_session_destroyed(&session);
+    }
+
+    fn cursor_session_destroyed(&mut self, session: CursorSessionRef) {
+        self.image_copy_capture_cursor_session_destroyed(&session);
     }
 }
 
