@@ -640,11 +640,20 @@ impl Niri {
             // not just the hotspot, so the position may be negative or past the edge. The
             // protocol specifies this interpretation even though it differs from
             // wl_pointer.enter; this is also how wlroots implements it.
+            //
+            // A hidden cursor (e.g. before the first pointer motion of a session) has no
+            // image, so it counts as left.
+            let int_scale = output.current_scale().integer_scale();
+            let cursor_hidden = matches!(
+                self.cursor_manager.get_render_cursor(int_scale),
+                RenderCursor::Hidden
+            );
             let hotspot = Point::<i32, Physical>::from((hotspot.x, hotspot.y));
             let image = Rectangle::new(pos - hotspot, Size::from((cursor_size.w, cursor_size.h)));
             let output_rect =
                 Rectangle::from_size(output.current_transform().transform_size(mode.size));
-            if self.pointer_visibility.is_visible() && image.overlaps(output_rect) {
+            if self.pointer_visibility.is_visible() && !cursor_hidden && image.overlaps(output_rect)
+            {
                 entry
                     .session
                     .set_cursor_pos(Some(Point::from((pos.x, pos.y))));
